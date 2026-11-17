@@ -714,50 +714,111 @@ class PlayerPage extends StatefulWidget {
 }
 
 class _PlayerPageState extends State<PlayerPage> {
-  late final VideoPlayerController vc;
+  VideoPlayerController? vc;
   bool ready = false;
+  String? error;
 
   @override
   void initState() {
     super.initState();
-    vc = VideoPlayerController.file(File(widget.d.path))
-      ..initialize().then((_) {
-        if (!mounted) return;
-        setState(() => ready = true);
-        vc.play();
-      });
+    _init();
+  }
+
+  // Looks at the first bytes to tell what the downloaded file really is.
+  String _sniff(List<int> h) {
+    if (h.length >= 8 && String.fromCharCodes(h.sublist(4, 8)) == 'ftyp') return 'mp4';
+    if (h.length >= 4 && h[0] == 0x1A && h[1] == 0x45 && h[2] == 0xDF && h[3] == 0xA3) {
+      return 'webm/mkv';
+    }
+    if (h.isNotEmpty && h[0] == 0x3C) return 'html';
+    if (h.isNotEmpty && (h[0] == 0x7B || h[0] == 0x5B)) return 'json';
+    if (h.length >= 3 && h[0] == 0xFF && h[1] == 0xD8) return 'jpeg image';
+    if (h.length >= 4 && String.fromCharCodes(h.sublist(0, 4)) == 'GIF8') return 'gif image';
+    if (h.length >= 4 && h[0] == 0x89 && String.fromCharCodes(h.sublist(1, 4)) == 'PNG') {
+      return 'png image';
+    }
+    if (h.length >= 4 && String.fromCharCodes(h.sublist(0, 4)) == 'RIFF') return 'riff (avi/wav/webp)';
+    if (h.length >= 3 && String.fromCharCodes(h.sublist(0, 3)) == 'ID3') return 'mp3';
+    return 'unknown';
+  }
+
+  Future<void> _init() async {
+    final f = File(widget.d.path);
+    var kind = 'unknown';
+    var len = 0;
+    try {
+      len = await f.length();
+      final raf = await f.open();
+      final head = await raf.read(16);
+      await raf.close();
+      kind = _sniff(head);
+    } catch (e) {
+      if (mounted) setState(() => error = 'Cannot read the file: $e');
+      return;
+    }
+    if (kind == 'html' || kind == 'json' || kind.endsWith('image')) {
+      if (mounted) {
+        setState(() => error =
+            'This file is not a video.\nDetected type: $kind ($len bytes).\n'
+            'The link returned a web page / image instead of a video file.');
+      }
+      return;
+    }
+    try {
+      final c = VideoPlayerController.file(f);
+      vc = c;
+      await c.initialize();
+      if (!mounted) return;
+      setState(() => ready = true);
+      c.play();
+    } catch (e) {
+      if (mounted) {
+        setState(() => error =
+            'Player could not open this file.\nDetected type: $kind ($len bytes).\n\n$e');
+      }
+    }
   }
 
   @override
   void dispose() {
-    vc.dispose();
+    vc?.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(widget.d.name, overflow: TextOverflow.ellipsis)),
-        body: !ready
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
-                children: [
-                  Expanded(
-                    child: Center(
-                      child: AspectRatio(
-                        aspectRatio: vc.value.aspectRatio == 0 ? 16 / 9 : vc.value.aspectRatio,
-                        child: VideoPlayer(vc),
+  Widget build(BuildContext context) {
+    final c = vc;
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.d.name, overflow: TextOverflow.ellipsis)),
+      body: error != null
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: SelectableText(error!, textAlign: TextAlign.center),
+              ),
+            )
+          : (!ready || c == null)
+              ? const Center(child: CircularProgressIndicator())
+              : Column(
+                  children: [
+                    Expanded(
+                      child: Center(
+                        child: AspectRatio(
+                          aspectRatio: c.value.aspectRatio == 0 ? 16 / 9 : c.value.aspectRatio,
+                          child: VideoPlayer(c),
+                        ),
                       ),
                     ),
-                  ),
-                  VideoProgressIndicator(vc, allowScrubbing: true),
-                  IconButton(
-                    iconSize: 48,
-                    icon: Icon(vc.value.isPlaying ? Icons.pause : Icons.play_arrow),
-                    onPressed: () => setState(
-                        () => vc.value.isPlaying ? vc.pause() : vc.play()),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
-      );
+                    VideoProgressIndicator(c, allowScrubbing: true),
+                    IconButton(
+                      iconSize: 48,
+                      icon: Icon(c.value.isPlaying ? Icons.pause : Icons.play_arrow),
+                      onPressed: () =>
+                          setState(() => c.value.isPlaying ? c.pause() : c.play()),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+    );
+  }
 }
