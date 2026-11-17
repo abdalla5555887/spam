@@ -1,0 +1,19 @@
+name: vdl_app
+description: Video downloader with in-app browser, resumable downloads and player.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  dio: ^5.4.3
+  path_provider: ^2.1.3
+  webview_flutter: ^4.8.0
+  video_player: ^2.8.6
+  flutter_foreground_task: ^8.17.0
+
+flutter:
+  uses-material-design: true
